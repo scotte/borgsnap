@@ -1,0 +1,205 @@
+#!/bin/bash
+
+# borgsnap - licensed under GPLv3. See the LICENSE file for additional
+# details.
+#
+# Perform a ZFS snapshot and rolling backups using borg.
+# On the first of the month, a snapshot is done labeled "month-".
+# Otherwise every Sunday, a snapshot is done is done labeled "week-".
+# Otherwise every day, a snapshot is done labeled "day-".
+# If no month- or week- snapshots already exist, these will be done even
+# if it is not the first of the month or Sunday.
+#
+# Keep up to MONTH_KEEP month backups, WEEK_KEEP week backups, and
+# DAY_KEEP day backups.
+#
+# Usage: borgsnap <config_file>
+#
+# Configuration file documentation:
+#
+# The configuration file is blindly and dumbly sourced as shell variables,
+# hence do not do things such as add whitespace around the "=". There are no
+# defaults, all options must be specified. See the example configuration files
+# to use as a template.
+#
+# FS - List file ZFS filesystems to backup.
+#   Example: FS="zroot/root zroot/home zdata/data"
+#
+# OUT - Directory for borg backups. Backups will be stored in subdirectories
+#       of pool and filesystem, for example "/backup/borg/zroot/root". This
+#       directory must be created prior to running borgsnap.
+#   Example: OUT="/backup/borg"
+#
+# REMOTE - If specified (not ""), remote connect string and directory. Only
+#          rsync.net has been tested. The remote directory (myhost in the
+#          example) will be created if it does not exist.
+#   Example: REMOTE=""
+#   Example: REMOTE="XXXX@YYYY.rsync.net:myhost"
+#
+# PASS - Path to a file containing a single line with the passphrase for borg
+#        encryption. I generate these with "pwgen 128 1 >/my/path/myhost.key".
+#   Example: PASS="/path/to/my/super/secret/myhost.key"
+#
+# MONTH_KEEP - Number of month backups to keep.
+#   Example: MONTH_KEEP=1
+#
+# WEEK_KEEP - Number of week backups to keep.
+#   Example: WEEK_KEEP=4
+#
+# DAY_KEEP - Number of day backups to keep.
+#   Example: DAY_KEEP=7
+#
+# Note that semantics for lifecycles differ for local ZFS snapshots,
+# local borg, and remote borg backups. For ZFS snapshots, we delete all but
+# the last N snapshots matching the month-, week-, or day- labels. For borg,
+# this uses "borg prune" rather than "borg delete".
+
+set -eu
+
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+
+usage() {
+  echo "Usage: $0 <config_file>" >&2
+  exit 1
+}
+
+die() {
+  echo "$0: $@" >&2
+  exit 1
+}
+
+[[ $# == 1 ]] || usage
+
+[[ -r $1 ]] || die "Unable to open $1"
+
+source $1
+
+export BORG_PASSPHRASE=$(< $PASS)
+
+dow=$(date +"%w")
+dom=$(date +"%d")
+date=$(date +"%Y%m%d")
+
+forcemonth=0
+forceweek=0
+
+findlast() {
+  zfs list -t snap -o name | grep "${1}@${2}-" | sort -nr | head -1
+}
+
+findall() {
+  zfs list -t snap -o name | grep "${1}@${2}-" | sort -nr
+}
+
+snapshot() {
+  echo "Snapshot ${1}@${2}"
+  zfs snapshot ${1}@${2}
+  # Sometimes it seems to take some time?
+  sleep 5
+}
+
+dobackup() {
+  # $1 - volume, i.e. zroot/home
+  # $2 - label, i.e. month-20170602
+  # Expects borgdir, rsyncdir
+
+  mount=$(zfs get -H -o value mountpoint $1)
+
+  echo "------ $(date) ------"
+  echo "Doing local backup of $1@$2"
+  BORG_OPTS="-v --stats --compression lz4 --exclude-if-present .noborg"
+  borg create $BORG_OPTS $borgdir::$2 ${mount}/.zfs/snapshot/$2
+  if [[ -n $rsyncdir ]]; then
+    echo "Doing rsync backup of $1@$2"
+    borg create $BORG_OPTS --remote-path=borg1 $rsyncdir::$2 ${mount}/.zfs/snapshot/$2
+  fi
+}
+
+purgeold() {
+  # $1 - volume, i.e. zroot/home
+  # $2 - prefix, i.e. month, week, or day
+  # $3 - number to keep
+  # Expects borgdir, rsyncdir
+
+  echo "------ $(date) ------"
+  total=$(wc -l <<<$(findall $1 $2))
+
+  if [[ $total -le $3 ]]; then
+    echo "No old backups to purge"
+  else
+    delete=$(($total-$3))
+    echo "Keep: $3, found: $total, will delete $delete"
+    for i in $(tail -n $delete <<<$(findall $1 $2)); do
+      echo "Purging old snapshot $i"
+      zfs destroy $i
+    done
+    echo "Pruning local borg"
+    BORG_OPTS="-v --stats --keep-daily=$DAY_KEEP --keep-weekly=$WEEK_KEEP --keep-monthly=$MONTH_KEEP"
+    borg prune $BORG_OPTS $borgdir
+    if [[ -n $rsyncdir ]]; then
+      echo "Pruning rsync borg"
+      borg prune $BORG_OPTS --remote-path=borg1 $rsyncdir
+    fi
+  fi
+}
+
+[[ $(id -u) == 0 ]] || die "Must be run as root"
+[[ -n $BORG_PASSPHRASE ]] || die "Unable to read passphrase from file $PASS"
+[[ -d $OUT ]] || die "Non-existent output directory $OUT"
+
+echo "====== $(date) ======"
+for i in $FS; do
+  pool=${i%%/*}
+  fs=${i##*/}
+  borgdir="$OUT/$pool/$fs"
+  if [[ -n $REMOTE ]]; then
+    rsyncdir="$REMOTE/$pool/$fs"
+  else
+    rsyncdir=""
+  fi
+
+  echo "Processing $pool $fs to $borgdir"
+
+  if [[ ! -d $borgdir ]]; then
+    echo "Initializing borg $borgdir"
+    mkdir -p $borgdir
+    borg init $borgdir
+    echo "Initializing rsync $rsyncdir"
+    host=${REMOTE%:*}
+    dir=${REMOTE#*:}
+    ssh $host mkdir -p $dir/$pool/$fs
+    if [[ -n $rsyncdir ]]; then
+      borg init --remote-path=borg1 $rsyncdir
+    fi
+  fi
+
+  lastmonth=$(findlast $i month)
+  if [[ -z $lastmonth ]]; then
+    forcemonth=1
+  fi
+
+  lastweek=$(findlast $i week)
+  if [[ -z $lastweek ]]; then
+    forceweek=1
+  fi
+
+  if [[ $forcemonth == 1 || $dom == 0 ]]; then
+    label="month-$date"
+    snapshot $i $label
+    dobackup $i $label
+    purgeold $i month $MONTH_KEEP
+  elif [[ $forceweek == 1 || $dow == 0 ]]; then
+    label="week-$date"
+    snapshot $i $label
+    dobackup $i $label
+    purgeold $i week $WEEK_KEEP
+  else
+    label="day-$date"
+    snapshot $i $label
+    dobackup $i $label
+    purgeold $i day $DAY_KEEP
+  fi
+done
+echo "====== $(date) ======"
+
+echo "Backup Done $(date)"
