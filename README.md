@@ -37,13 +37,13 @@ Borgsnap is pretty simple, it has the following basic flow:
 + Read configuration file and encryption key file
 + Validate output directory exists and a few other basics
 + For each ZFS filesystem do the following steps:
-++ Initialize borg repositories if local one doesn't exist
-++ Take a ZFS snapshot of the filesystem
-++ Run borg for the local output
-++ Run borg for the rsync.net output (if configured)
-++ Delete old ZFS snapshots
-++ Prune local borg
-++ Prune rsync.net borg
+  + Initialize borg repositories if local one doesn't exist
+  + Take a ZFS snapshot of the filesystem
+  + Run borg for the local output
+  + Run borg for the rsync.net output (if configured)
+  + Delete old ZFS snapshots
+  + Prune local borg
+  + Prune rsync.net borg
 
 That's it!
 
