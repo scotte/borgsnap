@@ -183,7 +183,7 @@ for i in $FS; do
     forceweek=1
   fi
 
-  if [[ $forcemonth == 1 || $dom == 0 ]]; then
+  if [[ $forcemonth == 1 || $dom == 1 ]]; then
     label="month-$date"
     snapshot $i $label
     dobackup $i $label
