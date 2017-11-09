@@ -56,7 +56,7 @@
 
 set -eu
 
-export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 usage() {
   echo "Usage: $0 <config_file>" >&2
