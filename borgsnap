@@ -183,12 +183,12 @@ for i in $FS; do
     forceweek=1
   fi
 
-  if [[ $forcemonth == 1 || $dom == 1 ]]; then
+  if [[ $forcemonth == 1 || $dom -eq 1 ]]; then
     label="month-$date"
     snapshot $i $label
     dobackup $i $label
     purgeold $i month $MONTH_KEEP
-  elif [[ $forceweek == 1 || $dow == 0 ]]; then
+  elif [[ $forceweek == 1 || $dow -eq 0 ]]; then
     label="week-$date"
     snapshot $i $label
     dobackup $i $label
