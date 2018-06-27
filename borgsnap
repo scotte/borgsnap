@@ -64,7 +64,7 @@ usage() {
 }
 
 die() {
-  echo "$0: $*" >&2
+  echo "$0: $@" >&2
   exit 1
 }
 
@@ -72,10 +72,9 @@ die() {
 
 [[ -r $1 ]] || die "Unable to open $1"
 
-source "$1"
+source $1
 
-BORG_PASSPHRASE=$(< "$PASS")
-export BORG_PASSPHRASE
+export BORG_PASSPHRASE=$(< $PASS)
 
 dow=$(date +"%w")
 dom=$(date +"%d")
@@ -94,7 +93,7 @@ findall() {
 
 snapshot() {
   echo "Snapshot ${1}@${2}"
-  zfs snapshot "${1}"@"${2}"
+  zfs snapshot ${1}@${2}
   # Sometimes it seems to take some time?
   sleep 5
 }
@@ -104,15 +103,15 @@ dobackup() {
   # $2 - label, i.e. month-20170602
   # Expects borgdir, rsyncdir
 
-  mount=$(zfs get -H -o value mountpoint "$1")
+  mount=$(zfs get -H -o value mountpoint $1)
 
   echo "------ $(date) ------"
   echo "Doing local backup of $1@$2"
   BORG_OPTS="-v --stats --compression lz4 --exclude-if-present .noborg"
-  borg create "$BORG_OPTS" "$borgdir"::"$2" "${mount}"/.zfs/snapshot/"$2"
+  borg create $BORG_OPTS $borgdir::$2 ${mount}/.zfs/snapshot/$2
   if [[ -n $rsyncdir ]]; then
     echo "Doing rsync backup of $1@$2"
-    borg create "$BORG_OPTS" --remote-path=borg1 "$rsyncdir"::"$2" "${mount}"/.zfs/snapshot/"$2"
+    borg create $BORG_OPTS --remote-path=borg1 $rsyncdir::$2 ${mount}/.zfs/snapshot/$2
   fi
 }
 
@@ -123,23 +122,23 @@ purgeold() {
   # Expects borgdir, rsyncdir
 
   echo "------ $(date) ------"
-  total=$(wc -l <<<"$(findall "$1" "$2")")
+  total=$(wc -l <<<$(findall $1 $2))
 
   if [[ $total -le $3 ]]; then
     echo "No old backups to purge"
   else
-    delete=$((total-$3))
+    delete=$(($total-$3))
     echo "Keep: $3, found: $total, will delete $delete"
-    for i in $(tail -n "$delete" <<<"$(findall "$1" "$2")"); do
+    for i in $(tail -n $delete <<<$(findall $1 $2)); do
       echo "Purging old snapshot $i"
-      zfs destroy "$i"
+      zfs destroy $i
     done
     echo "Pruning local borg"
     BORG_OPTS="-v --stats --keep-daily=$DAY_KEEP --keep-weekly=$WEEK_KEEP --keep-monthly=$MONTH_KEEP"
-    borg prune "$BORG_OPTS" "$borgdir"
+    borg prune $BORG_OPTS $borgdir
     if [[ -n $rsyncdir ]]; then
       echo "Pruning rsync borg"
-      borg prune "$BORG_OPTS" --remote-path=borg1 "$rsyncdir"
+      borg prune $BORG_OPTS --remote-path=borg1 $rsyncdir
     fi
   fi
 }
@@ -163,42 +162,42 @@ for i in $FS; do
 
   if [[ ! -d $borgdir ]]; then
     echo "Initializing borg $borgdir"
-    mkdir -p "$borgdir"
-    borg init "$borgdir"
+    mkdir -p $borgdir
+    borg init $borgdir
     echo "Initializing rsync $rsyncdir"
     host=${REMOTE%:*}
     dir=${REMOTE#*:}
-    ssh "$host" mkdir -p "$dir"/"$pool"/"$fs"
+    ssh $host mkdir -p $dir/$pool/$fs
     if [[ -n $rsyncdir ]]; then
       borg init --remote-path=borg1 $rsyncdir
     fi
   fi
 
-  lastmonth=$(findlast "$i" month)
+  lastmonth=$(findlast $i month)
   if [[ -z $lastmonth ]]; then
     forcemonth=1
   fi
 
-  lastweek=$(findlast "$i" week)
+  lastweek=$(findlast $i week)
   if [[ -z $lastweek ]]; then
     forceweek=1
   fi
 
   if [[ $forcemonth == 1 || $dom -eq 1 ]]; then
     label="month-$date"
-    snapshot "$i" "$label"
-    dobackup "$i" "$label"
-    purgeold "$i" month "$MONTH_KEEP"
+    snapshot $i $label
+    dobackup $i $label
+    purgeold $i month $MONTH_KEEP
   elif [[ $forceweek == 1 || $dow -eq 0 ]]; then
     label="week-$date"
-    snapshot "$i" "$label"
-    dobackup "$i" "$label"
-    purgeold "$i" week "$WEEK_KEEP"
+    snapshot $i $label
+    dobackup $i $label
+    purgeold $i week $WEEK_KEEP
   else
     label="day-$date"
-    snapshot "$i" "$label"
-    dobackup "$i" "$label"
-    purgeold "$i" day "$DAY_KEEP"
+    snapshot $i $label
+    dobackup $i $label
+    purgeold $i day $DAY_KEEP
   fi
 done
 echo "====== $(date) ======"
