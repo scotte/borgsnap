@@ -102,18 +102,22 @@ snapshot() {
 dobackup() {
   # $1 - volume, i.e. zroot/home
   # $2 - label, i.e. month-20170602
-  # Expects borgdir, rsyncdir
+  # Expects borgdir, rsyncdir, OUT
 
   mount=$(zfs get -H -o value mountpoint "$1")
 
   echo "------ $(date) ------"
+  bind_dir="${OUT}/bind/${1}"
+  mkdir -p "$bind_dir"
+  mount --bind "${mount}/.zfs/snapshot/${2}" "$bind_dir"
   echo "Doing local backup of ${1}@${2}"
   BORG_OPTS="-v --stats --compression lz4 --exclude-if-present .noborg"
-  borg create $BORG_OPTS "${borgdir}::${2}" "${mount}/.zfs/snapshot/${2}"
+  borg create $BORG_OPTS "${borgdir}::${2}" "$bind_dir"
   if [[ -n $rsyncdir ]]; then
     echo "Doing rsync backup of ${1}@${2}"
-    borg create $BORG_OPTS --remote-path=borg1 "${rsyncdir}::${2}" "${mount}/.zfs/snapshot/${2}"
+    borg create $BORG_OPTS --remote-path=borg1 "${rsyncdir}::${2}" "$bind_dir"
   fi
+  umount "$bind_dir"
 }
 
 purgeold() {
