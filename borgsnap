@@ -111,7 +111,7 @@ dobackup() {
   mkdir -p "$bind_dir"
   mount --bind "${mount}/.zfs/snapshot/${2}" "$bind_dir"
   echo "Doing local backup of ${1}@${2}"
-  BORG_OPTS="-v --stats --compression lz4 --exclude-if-present .noborg"
+  BORG_OPTS="--info --stats --compression lz4 --exclude-if-present .noborg"
   borg create $BORG_OPTS "${borgdir}::${2}" "$bind_dir"
   if [[ -n $rsyncdir ]]; then
     echo "Doing rsync backup of ${1}@${2}"
@@ -139,7 +139,7 @@ purgeold() {
       zfs destroy "$i"
     done
     echo "Pruning local borg"
-    BORG_OPTS="-v --stats --keep-daily=$DAY_KEEP --keep-weekly=$WEEK_KEEP --keep-monthly=$MONTH_KEEP"
+    BORG_OPTS="--info --stats --keep-daily=$DAY_KEEP --keep-weekly=$WEEK_KEEP --keep-monthly=$MONTH_KEEP"
     borg prune $BORG_OPTS "$borgdir"
     if [[ -n $rsyncdir ]]; then
       echo "Pruning rsync borg"
