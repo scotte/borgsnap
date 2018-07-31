@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # borgsnap - licensed under GPLv3. See the LICENSE file for additional
 # details.
@@ -109,13 +109,13 @@ dobackup() {
   echo "------ $(date) ------"
   bind_dir="${OUT}/bind/${1}"
   mkdir -p "$bind_dir"
-  mount --bind "${mount}/.zfs/snapshot/${2}" "$bind_dir"
+  mount -t ${MOUNT_FS_TYPE:-bind} "${mount}/.zfs/snapshot/${2}" "$bind_dir"
   echo "Doing local backup of ${1}@${2}"
   BORG_OPTS="--info --stats --compression lz4 --exclude-if-present .noborg"
   borg create $BORG_OPTS "${borgdir}::${2}" "$bind_dir"
   if [[ -n $rsyncdir ]]; then
     echo "Doing rsync backup of ${1}@${2}"
-    borg create $BORG_OPTS --remote-path=borg1 "${rsyncdir}::${2}" "$bind_dir"
+    borg create $BORG_OPTS --remote-path=$REMOTE_BORG "${rsyncdir}::${2}" "$bind_dir"
   fi
   umount "$bind_dir"
 }
@@ -143,7 +143,7 @@ purgeold() {
     borg prune $BORG_OPTS "$borgdir"
     if [[ -n $rsyncdir ]]; then
       echo "Pruning rsync borg"
-      borg prune $BORG_OPTS --remote-path=borg1 "$rsyncdir"
+      borg prune $BORG_OPTS --remote-path=$REMOTE_BORG "$rsyncdir"
     fi
   fi
 }
@@ -168,14 +168,14 @@ for i in $FS; do
   if [[ ! -d $borgdir ]]; then
     echo "Initializing borg $borgdir"
     mkdir -p "$borgdir"
-    borg init "$borgdir"
+    borg init --encryption=keyfile "$borgdir"
     if [[ -n $REMOTE ]]; then
       echo "Initializing rsync $rsyncdir"
       host=${REMOTE%:*}
       dir=${REMOTE#*:}
       ssh "$host" mkdir -p "$dir/$pool/$fs"
       if [[ -n $rsyncdir ]]; then
-        borg init --remote-path=borg1 "$rsyncdir"
+        borg init --encryption=keyfile --remote-path=$REMOTE_BORG "$rsyncdir"
       fi
     fi
   fi
