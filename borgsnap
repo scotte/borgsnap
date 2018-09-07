@@ -168,14 +168,14 @@ for i in $FS; do
   if [[ ! -d $borgdir ]]; then
     echo "Initializing borg $borgdir"
     mkdir -p "$borgdir"
-    borg init "$borgdir"
+    borg init --encryption=repokey "$borgdir"
     if [[ -n $REMOTE ]]; then
       echo "Initializing rsync $rsyncdir"
       host=${REMOTE%:*}
       dir=${REMOTE#*:}
       ssh "$host" mkdir -p "$dir/$pool/$fs"
       if [[ -n $rsyncdir ]]; then
-        borg init --remote-path=borg1 "$rsyncdir"
+        borg init --encryption=repokey --remote-path=borg1 "$rsyncdir"
       fi
     fi
   fi
