@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# borgwrapper - licensed under GPLv3. See the LICENSE file for additional
+# details.
+#
+# This is a wrapper script for running arbitrary borg commands. It reads the
+# borgsnap configuration file in order to set BORG_PASSPHRASE.
+
+set -eu
+
+export PATH="/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+usage() {
+  echo "Usage: $0 <config_file> [borg options]" >&2
+  exit 1
+}
+
+die() {
+  echo "$0: $*" >&2
+  exit 1
+}
+
+[[ $# -ge 1 ]] || usage
+
+[[ -r $1 ]] || die "Unable to open $1"
+
+source "$1"
+
+BORG_PASSPHRASE=$(< "$PASS")
+export BORG_PASSPHRASE
+
+shift
+exec borg $*
