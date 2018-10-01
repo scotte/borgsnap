@@ -25,9 +25,10 @@
 # FS - List file ZFS filesystems to backup.
 #   Example: FS="zroot/root zroot/home zdata/data"
 #
-# OUT - Directory for borg backups. Backups will be stored in subdirectories
-#       of pool and filesystem, for example "/backup/borg/zroot/root". This
-#       directory must be created prior to running borgsnap.
+# OUT - If specified (not ""), directory for borg backups. Backups will be
+#       stored in subdirectories of pool and filesystem, for example
+#       "/backup/borg/zroot/root". This directory must be created prior to
+#       running borgsnap.
 #   Example: OUT="/backup/borg"
 #
 # REMOTE - If specified (not ""), remote connect string and directory. Only
@@ -57,6 +58,7 @@
 set -eu
 
 export PATH="/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export BINDDIR="/run/borgsnap"
 
 usage() {
   echo "Usage: $0 <config_file>" >&2
@@ -102,17 +104,19 @@ snapshot() {
 dobackup() {
   # $1 - volume, i.e. zroot/home
   # $2 - label, i.e. month-20170602
-  # Expects borgdir, rsyncdir, OUT
+  # Expects borgdir, rsyncdir, BINDDIR
 
   mount=$(zfs get -H -o value mountpoint "$1")
 
   echo "------ $(date) ------"
-  bind_dir="${OUT}/bind/${1}"
+  bind_dir="${BINDDIR}/${1}"
   mkdir -p "$bind_dir"
   mount --bind "${mount}/.zfs/snapshot/${2}" "$bind_dir"
-  echo "Doing local backup of ${1}@${2}"
   BORG_OPTS="--info --stats --compression lz4 --exclude-if-present .noborg"
-  borg create $BORG_OPTS "${borgdir}::${2}" "$bind_dir"
+  if [[ -n $borgdir ]]; then
+    echo "Doing local backup of ${1}@${2}"
+    borg create $BORG_OPTS "${borgdir}::${2}" "$bind_dir"
+  fi
   if [[ -n $rsyncdir ]]; then
     echo "Doing rsync backup of ${1}@${2}"
     borg create $BORG_OPTS --remote-path=borg1 "${rsyncdir}::${2}" "$bind_dir"
@@ -138,9 +142,11 @@ purgeold() {
       echo "Purging old snapshot $i"
       zfs destroy "$i"
     done
-    echo "Pruning local borg"
     BORG_OPTS="--info --stats --keep-daily=$DAY_KEEP --keep-weekly=$WEEK_KEEP --keep-monthly=$MONTH_KEEP"
-    borg prune $BORG_OPTS "$borgdir"
+    if [[ -n $borgdir ]]; then
+      echo "Pruning local borg"
+      borg prune $BORG_OPTS "$borgdir"
+    fi
     if [[ -n $rsyncdir ]]; then
       echo "Pruning rsync borg"
       borg prune $BORG_OPTS --remote-path=borg1 "$rsyncdir"
@@ -150,33 +156,40 @@ purgeold() {
 
 [[ $(id -u) == 0 ]] || die "Must be run as root"
 [[ -n $BORG_PASSPHRASE ]] || die "Unable to read passphrase from file $PASS"
-[[ -d $OUT ]] || die "Non-existent output directory $OUT"
+if [[ -n $OUT ]]; then
+  [[ -d $OUT ]] || die "Non-existent output directory $OUT"
+fi
 
 echo "====== $(date) ======"
 for i in $FS; do
   pool=${i%%/*}
   fs=${i##*/}
-  borgdir="$OUT/$pool/$fs"
+  if [[ -n $OUT ]]; then
+    borgdir="$OUT/$pool/$fs"
+  else
+    borgdir=""
+  fi
   if [[ -n $REMOTE ]]; then
     rsyncdir="$REMOTE/$pool/$fs"
   else
     rsyncdir=""
   fi
 
-  echo "Processing $pool $fs to $borgdir"
+  echo "Processing $pool $fs"
 
-  if [[ ! -d $borgdir ]]; then
+  if [[ -n $borgdir && ! -d $borgdir ]]; then
     echo "Initializing borg $borgdir"
     mkdir -p "$borgdir"
     borg init --encryption=repokey "$borgdir"
-    if [[ -n $REMOTE ]]; then
+  fi
+  if [[ -n $rsyncdir ]]; then
+    host=${REMOTE%:*}
+    dir=${REMOTE#*:}
+    ssh "$host" test -d "$dir/$pool/$fs"
+    if [[ $? == 1 ]]; then
       echo "Initializing rsync $rsyncdir"
-      host=${REMOTE%:*}
-      dir=${REMOTE#*:}
       ssh "$host" mkdir -p "$dir/$pool/$fs"
-      if [[ -n $rsyncdir ]]; then
-        borg init --encryption=repokey --remote-path=borg1 "$rsyncdir"
-      fi
+      borg init --encryption=repokey --remote-path=borg1 "$rsyncdir"
     fi
   fi
 

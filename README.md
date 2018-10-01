@@ -22,15 +22,14 @@ costs and fees for deleting data.
 Borgsnap automatically purges snapshots and old borg backups (both locally
 and remotely) based on retention settings given in the configuration.
 
-This assumes borg version 1.0 or later (I'm using the version shipped with
-Debian Stretch).
+This assumes borg version 1.0 or later.
 
 Finally, these things are probably obvious, but: Make sure your local backups
 are on a different physical drive than the data you are backing up and don't
-forget to do remote backups, because local backups isn't disaster proofing
+forget to do remote backups, because a local backup isn't disaster proofing
 your data.
 
-# Backup flow
+## Backup flow
 
 Borgsnap is pretty simple, it has the following basic flow:
 
@@ -39,11 +38,11 @@ Borgsnap is pretty simple, it has the following basic flow:
 + For each ZFS filesystem do the following steps:
   + Initialize borg repositories if local one doesn't exist
   + Take a ZFS snapshot of the filesystem
-  + Run borg for the local output
-  + Run borg for the rsync.net output (if configured)
+  + Run borg for the local output if configured
+  + Run borg for the rsync.net output if configured
   + Delete old ZFS snapshots
-  + Prune local borg
-  + Prune rsync.net borg
+  + Prune local borg if configured and needed
+  + Prune rsync.net borg if configured and needed
 
 That's it!
 
@@ -51,7 +50,7 @@ If things fail, it is not currently re-entrant. For example, if a ZFS snapshot
 already exists for the day, the script will fail. This could use a bit of
 battle hardening, but has been working well for me for several months already.
 
-# Restoring files
+## Restoring files
 
 Borgsnap doesn't help with restoring files, it just backs them up. Restorations
 are done directly from borg (or ZFS snapshots if it's a simple file deletion to
@@ -71,7 +70,10 @@ and restore files. See example below.
 + Use the remote borg repository. As with a local repository, use "borg mount"
 to restore files from rsync.net.
 
-## Examples
+The borgwrapper script in this repository can be used to set BORG_PASSPHRASE
+from the borgsnap configuration file, making this slightly easier.
+
+### Restoration Examples
 
 Note: Instead of setting BORG_PASSPHRASE as done here, with an exported
 environment variable, you can paste it in interactively.
@@ -111,3 +113,10 @@ passing --remote-path=borg1 since we are using a modern borg version:
 I used "borg mount" above, where we would, simply "cp" the files out. See
 the borg manpages to read about other restoration options, such as
 "borg extract".
+
+And finally, using the borgwrapper script, which will set BORG_PASSPHRASE for
+you:
+```
+# borgwrapper /path/to/my/borgsnap.conf list /backup/borg/zroot/root
+[...]
+```
