@@ -59,6 +59,7 @@ set -eu
 
 export PATH="/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export BINDDIR="/run/borgsnap"
+export BORGPATH="borg1" # "borg1" for rsync, otherwise "borg" as appropriate
 
 usage() {
   echo "Usage: $0 <config_file>" >&2
@@ -118,8 +119,8 @@ dobackup() {
     borg create $BORG_OPTS "${borgdir}::${2}" "$bind_dir"
   fi
   if [[ -n $rsyncdir ]]; then
-    echo "Doing rsync backup of ${1}@${2}"
-    borg create $BORG_OPTS --remote-path=borg1 "${rsyncdir}::${2}" "$bind_dir"
+    echo "Doing remote backup of ${1}@${2}"
+    borg create $BORG_OPTS --remote-path=${BORGPATH} "${rsyncdir}::${2}" "$bind_dir"
   fi
   umount "$bind_dir"
 }
@@ -148,8 +149,8 @@ purgeold() {
       borg prune $BORG_OPTS "$borgdir"
     fi
     if [[ -n $rsyncdir ]]; then
-      echo "Pruning rsync borg"
-      borg prune $BORG_OPTS --remote-path=borg1 "$rsyncdir"
+      echo "Pruning remote borg"
+      borg prune $BORG_OPTS --remote-path=${BORGPATH} "$rsyncdir"
     fi
   fi
 }
@@ -185,12 +186,15 @@ for i in $FS; do
   if [[ -n $rsyncdir ]]; then
     host=${REMOTE%:*}
     dir=${REMOTE#*:}
+    set +e
     ssh "$host" test -d "$dir/$pool/$fs"
     if [[ $? == 1 ]]; then
-      echo "Initializing rsync $rsyncdir"
+      set -e
+      echo "Initializing remote $rsyncdir"
       ssh "$host" mkdir -p "$dir/$pool/$fs"
-      borg init --encryption=repokey --remote-path=borg1 "$rsyncdir"
+      borg init --encryption=repokey --remote-path=${BORGPATH} "$rsyncdir"
     fi
+    set -e
   fi
 
   lastmonth=$(findlast "$i" month)
