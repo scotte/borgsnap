@@ -107,12 +107,10 @@ dobackup() {
   # $2 - label, i.e. month-20170602
   # Expects borgdir, rsyncdir, BINDDIR
 
-  mount=$(zfs get -H -o value mountpoint "$1")
-
   echo "------ $(date) ------"
   bind_dir="${BINDDIR}/${1}"
   mkdir -p "$bind_dir"
-  mount --bind "${mount}/.zfs/snapshot/${2}" "$bind_dir"
+  mount -t zfs "${1}@${2}" "$bind_dir"
   BORG_OPTS="--info --stats --compression lz4 --exclude-if-present .noborg"
   if [[ -n $borgdir ]]; then
     echo "Doing local backup of ${1}@${2}"
@@ -163,20 +161,18 @@ fi
 
 echo "====== $(date) ======"
 for i in $FS; do
-  pool=${i%%/*}
-  fs=${i##*/}
   if [[ -n $OUT ]]; then
-    borgdir="$OUT/$pool/$fs"
+    borgdir="$OUT/${i}"
   else
     borgdir=""
   fi
   if [[ -n $REMOTE ]]; then
-    rsyncdir="$REMOTE/$pool/$fs"
+    rsyncdir="$REMOTE/${i}"
   else
     rsyncdir=""
   fi
 
-  echo "Processing $pool $fs"
+  echo "Processing ${i}"
 
   if [[ -n $borgdir && ! -d $borgdir ]]; then
     echo "Initializing borg $borgdir"
@@ -187,11 +183,11 @@ for i in $FS; do
     host=${REMOTE%:*}
     dir=${REMOTE#*:}
     set +e
-    ssh "$host" test -d "$dir/$pool/$fs"
+    ssh "$host" test -d "$dir/${i}"
     if [[ $? == 1 ]]; then
       set -e
       echo "Initializing remote $rsyncdir"
-      ssh "$host" mkdir -p "$dir/$pool/$fs"
+      ssh "$host" mkdir -p "$dir/${i}"
       borg init --encryption=repokey --remote-path=${BORGPATH} "$rsyncdir"
     fi
     set -e
