@@ -81,7 +81,8 @@ BORG_PASSPHRASE=$(< "$PASS")
 export BORG_PASSPHRASE
 
 dow=$(date +"%w")
-dom=$(date +"%d")
+domraw=$(date +"%d")
+dom=${domraw##0}
 date=$(date +"%Y%m%d")
 
 forcemonth=0
